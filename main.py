@@ -2,7 +2,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
-import uvicorn
 
 app = FastAPI()
 
@@ -12,23 +11,24 @@ chef_status = {chef: "idle" for chef in chefs}
 
 order_queue = asyncio.Queue()
 
-async def assign_order_to_chef(websocket):
+async def assign_order_to_chef(websocket, client_id):
     while True:
         order = await order_queue.get()
-        for i, chef in enumerate(chefs):
-            if chef_status[chef] == "idle":
-                for j, stove in enumerate(stoves):
-                    if not stove["dish"]:
-                        chef_status[chef] = "cooking"
-                        stoves[j]["dish"] = order["dish"]
-                        stoves[j]["order_id"] = order["order_id"]
-                        asyncio.create_task(cook_dish(websocket, order["dish"], order["order_id"], chef, j))
-                        break
-                else:
-                    continue
-                break
-        else:
-            order_queue.put_nowait(order)
+        if order["client_id"] == client_id:
+            for i, chef in enumerate(chefs):
+                if chef_status[chef] == "idle":
+                    for j, stove in enumerate(stoves):
+                        if not stove["dish"]:
+                            chef_status[chef] = "cooking"
+                            stoves[j]["dish"] = order["dish"]
+                            stoves[j]["order_id"] = order["order_id"]
+                            asyncio.create_task(cook_dish(websocket, order["dish"], order["order_id"], chef, j))
+                            break
+                    else:
+                        continue
+                    break
+            else:
+                order_queue.put_nowait(order)
         await asyncio.sleep(1)
 
 async def cook_dish(websocket, dish, order_id, chef, stove_num):
@@ -101,11 +101,13 @@ async def get():
                 .stove .dish { font-size: 14px; margin-top: 5px; }
                 .chef-status { margin-top: 20px; }
                 .chef-status p { margin: 5px 0; }
+                #client-id { position: absolute; top: 10px; right: 10px; font-size: 14px; color: #888; }
             </style>
         </head>
         <body>
             <div>
                 <h1>Cooking Progress</h1>
+                <div id="client-id"></div>
                 <button onclick="startCooking('mee_goreng')">Start Mee Goreng</button>
                 <button onclick="startCooking('butter_chicken')">Start Butter Chicken</button>
                 <button onclick="startCooking('dosa')">Start Dosa</button>
@@ -142,18 +144,27 @@ async def get():
                 <ul id="completed-orders"></ul>
             </div>
             <script>
-                let ws = new WebSocket("wss://try-render-bzt9.onrender.com/ws");
-                let orderCounters = {
+                let clientId = localStorage.getItem('clientId');
+                if (!clientId) {
+                    clientId = Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('clientId', clientId);
+                }
+                document.getElementById('client-id').textContent = 'Client ID: ' + clientId;
+
+                let orderCounters = JSON.parse(localStorage.getItem('orderCounters')) || {
                     mee_goreng: 0,
                     butter_chicken: 0,
                     dosa: 0
                 };
 
+                let ws = new WebSocket("wss://try-render-bzt9.onrender.com/ws");
+
                 function startCooking(dish) {
                     orderCounters[dish] += 1;
+                    localStorage.setItem('orderCounters', JSON.stringify(orderCounters));
                     const orderId = `${dish.toUpperCase()}-${String(orderCounters[dish]).padStart(3, '0')}`;
                     document.getElementById('order-queue').innerHTML += `<li id="${orderId}">${orderId}</li>`;
-                    ws.send(JSON.stringify({ dish, orderId }));
+                    ws.send(JSON.stringify({ dish, orderId, clientId }));
                 }
 
                 ws.onmessage = function(event) {
@@ -169,7 +180,10 @@ async def get():
                         const orderElem = document.getElementById(orderId);
                         if (orderElem) {
                             orderElem.parentNode.removeChild(orderElem);
-                            document.getElementById('completed-orders').innerHTML += `<li>${orderId}</li>`;
+                            let completedOrders = JSON.parse(localStorage.getItem('completedOrders')) || [];
+                            completedOrders.push(orderId);
+                            localStorage.setItem('completedOrders', JSON.stringify(completedOrders));
+                            document.getElementById('completed-orders').innerHTML = completedOrders.map(id => `<li>${id}</li>`).join('');
                         }
                     }
 
@@ -210,15 +224,13 @@ async def get():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    asyncio.create_task(assign_order_to_chef(websocket))
-    try:
-        while True:
-            data = await websocket.receive_json()
-            dish = data['dish']
-            order_id = data['orderId']
-            await order_queue.put({"dish": dish, "order_id": order_id})
-    except WebSocketDisconnect:
-        print("Client disconnected")
+    while True:
+        data = await websocket.receive_json()
+        dish = data['dish']
+        order_id = data['orderId']
+        client_id = data['clientId']
+        await order_queue.put({"dish": dish, "order_id": order_id, "client_id": client_id})
+        asyncio.create_task(assign_order_to_chef(websocket, client_id))
 
 # if __name__ == '__main__':
 #     import uvicorn
