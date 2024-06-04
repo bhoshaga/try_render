@@ -27,8 +27,8 @@ html_content = """
     <img src="https://i.pinimg.com/1200x/40/bb/a9/40bba9c6235d52f02f61e4a8ac9d59bb.jpg" class="image" alt="Window Seat View">
     <form class="guess-box" method="post" action="/guess">
         <div class="wordle-box">
-            {% for _ in range(10) %}
-            <input type="text" name="letter{{ loop.index }}" maxlength="1">
+            {% for i in range(10) %}
+            <input type="text" name="letter{{ i }}" maxlength="1">
             {% endfor %}
         </div>
         <button type="submit">Submit</button>
@@ -71,7 +71,7 @@ async def make_guess(request: Request, **kwargs):
     guess = "".join(kwargs.values()).lower()
     result = "Correct!" if guess == correct_answer else "Try again!"
     correct = result == "Correct!"
-    return html_content.replace("{% if result %}", f"{{% if True %}}").replace("{{ result }}", result).replace("{% if correct %}", f"{{% if {correct} %}}")
+    return html_content.replace("{% if result %}", "{% if True %}").replace("{{ result }}", result).replace("{% if correct %}", f"{% if {correct} %}")
 
 # if __name__ == "__main__":
 #     import uvicorn
