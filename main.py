@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
+import uvicorn
 
 app = FastAPI()
 
