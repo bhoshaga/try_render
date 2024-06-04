@@ -7,11 +7,13 @@ html_content = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Windowseat Game</title>
+    <title>Window Seat Game</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; }
-        .image { max-width: 100%; height: auto; }
+        h1 { margin-bottom: 0; }
+        h2 { margin-top: 5px; }
+        .image { max-width: 600px; height: auto; }
         .guess-box { margin-top: 20px; }
         .wordle-box { display: flex; justify-content: center; margin-top: 20px; }
         .wordle-box input { width: 40px; height: 40px; font-size: 24px; text-align: center; margin: 2px; text-transform: uppercase; }
@@ -20,11 +22,14 @@ html_content = """
     </style>
 </head>
 <body>
-    <h1>Guess the Location</h1>
+    <h1>Window Seat</h1>
+    <h2>Guess the Location</h2>
     <img src="https://i.pinimg.com/1200x/40/bb/a9/40bba9c6235d52f02f61e4a8ac9d59bb.jpg" class="image" alt="Window Seat View">
     <form class="guess-box" method="post" action="/guess">
         <div class="wordle-box">
-            <input type="text" name="guess" maxlength="10" required>
+            {% for _ in range(10) %}
+            <input type="text" name="letter{{ loop.index }}" maxlength="1">
+            {% endfor %}
         </div>
         <button type="submit">Submit</button>
     </form>
@@ -61,9 +66,10 @@ async def get_home():
     return html_content
 
 @app.post("/guess", response_class=HTMLResponse)
-async def make_guess(request: Request, guess: str = Form(...)):
-    correct_answer = "Lake Geneva"  # Adjust according to the exact location name
-    result = "Correct!" if guess.lower() == correct_answer.lower() else "Try again!"
+async def make_guess(request: Request, **kwargs):
+    correct_answer = "lakegeneva"
+    guess = "".join(kwargs.values()).lower()
+    result = "Correct!" if guess == correct_answer else "Try again!"
     correct = result == "Correct!"
     return html_content.replace("{% if result %}", f"{{% if True %}}").replace("{{ result }}", result).replace("{% if correct %}", f"{{% if {correct} %}}")
 
