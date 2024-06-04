@@ -244,7 +244,8 @@ async def websocket_endpoint(websocket: WebSocket):
             asyncio.create_task(kitchen.assign_order_to_chef(websocket))
     except WebSocketDisconnect:
         print(f"Client {client_id} disconnected")
-        del kitchens[client_id]
+        if client_id in kitchens:
+            del kitchens[client_id]
 
 # if __name__ == '__main__':
 #     import uvicorn
