@@ -142,7 +142,7 @@ async def get():
                 <ul id="completed-orders"></ul>
             </div>
             <script>
-                let ws = new WebSocket("ws://localhost:8000/ws");
+                let ws = new WebSocket("wss://try-render-bzt9.onrender.com/ws");
                 let orderCounters = {
                     mee_goreng: 0,
                     butter_chicken: 0,
