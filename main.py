@@ -5,79 +5,85 @@ from datetime import datetime
 
 app = FastAPI()
 
-chefs = ["Chef Gordon", "Chef Jamie", "Chef Nigella"]
-stoves = [{"dish": None, "order_id": None} for _ in range(4)]
-chef_status = {chef: "idle" for chef in chefs}
+class Kitchen:
+    def __init__(self):
+        self.chefs = ["Chef Gordon", "Chef Jamie", "Chef Nigella"]
+        self.stoves = [{"dish": None, "order_id": None} for _ in range(4)]
+        self.chef_status = {chef: "idle" for chef in self.chefs}
+        self.order_queue = asyncio.Queue()
 
-order_queue = asyncio.Queue()
-
-async def assign_order_to_chef(websocket, client_id):
-    while True:
-        order = await order_queue.get()
-        if order["client_id"] == client_id:
-            for i, chef in enumerate(chefs):
-                if chef_status[chef] == "idle":
-                    for j, stove in enumerate(stoves):
+    async def assign_order_to_chef(self, websocket):
+        while True:
+            order = await self.order_queue.get()
+            for i, chef in enumerate(self.chefs):
+                if self.chef_status[chef] == "idle":
+                    for j, stove in enumerate(self.stoves):
                         if not stove["dish"]:
-                            chef_status[chef] = "cooking"
-                            stoves[j]["dish"] = order["dish"]
-                            stoves[j]["order_id"] = order["order_id"]
-                            asyncio.create_task(cook_dish(websocket, order["dish"], order["order_id"], chef, j))
+                            self.chef_status[chef] = "cooking"
+                            self.stoves[j]["dish"] = order["dish"]
+                            self.stoves[j]["order_id"] = order["order_id"]
+                            asyncio.create_task(self.cook_dish(websocket, order["dish"], order["order_id"], chef, j))
                             break
                     else:
                         continue
                     break
             else:
-                order_queue.put_nowait(order)
-        await asyncio.sleep(1)
+                self.order_queue.put_nowait(order)
+            await asyncio.sleep(1)
 
-async def cook_dish(websocket, dish, order_id, chef, stove_num):
-    await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Assigned to {chef} on Stove {stove_num + 1}</div>")
-    if dish == 'mee_goreng':
-        await cook_mee_goreng(websocket, order_id, chef)
-    elif dish == 'butter_chicken':
-        await cook_butter_chicken(websocket, order_id, chef)
-    elif dish == 'dosa':
-        await cook_dosa(websocket, order_id, chef)
-    stoves[stove_num]["dish"] = None
-    stoves[stove_num]["order_id"] = None
-    chef_status[chef] = "idle"
-    await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Completed by {chef}</div>")
+    async def cook_dish(self, websocket, dish, order_id, chef, stove_num):
+        try:
+            await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Assigned to {chef} on Stove {stove_num + 1}</div>")
+            if dish == 'mee_goreng':
+                await self.cook_mee_goreng(websocket, order_id, chef)
+            elif dish == 'butter_chicken':
+                await self.cook_butter_chicken(websocket, order_id, chef)
+            elif dish == 'dosa':
+                await self.cook_dosa(websocket, order_id, chef)
+            await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Completed by {chef}</div>")
+        except WebSocketDisconnect:
+            print(f"WebSocket disconnected while cooking {order_id}")
+        finally:
+            self.stoves[stove_num]["dish"] = None
+            self.stoves[stove_num]["order_id"] = None
+            self.chef_status[chef] = "idle"
 
-async def chef_step(step_name: str, duration: int, websocket: WebSocket, chef: str, order_id: str, step_num: int, total_steps: int, color: str):
-    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Started {step_name} at {start_time}.</div>")
-    await asyncio.sleep(duration)
-    end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Completed {step_name} at {end_time}.</div>")
-    await asyncio.sleep(0.5)  # Half-second delay between steps
+    async def chef_step(self, step_name: str, duration: int, websocket: WebSocket, chef: str, order_id: str, step_num: int, total_steps: int, color: str):
+        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Started {step_name} at {start_time}.</div>")
+        await asyncio.sleep(duration)
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Completed {step_name} at {end_time}.</div>")
+        await asyncio.sleep(0.5)  # Half-second delay between steps
 
-async def cook_mee_goreng(websocket: WebSocket, order_id: str, chef: str):
-    total_steps = 5
-    color = "orange"
-    await chef_step("cutting vegetables for Mee Goreng", 3, websocket, chef, order_id, 1, total_steps, color)
-    await chef_step("boiling noodles for Mee Goreng", 4, websocket, chef, order_id, 2, total_steps, color)
-    await chef_step("frying noodles for Mee Goreng", 5, websocket, chef, order_id, 3, total_steps, color)
-    await chef_step("adding sauce for Mee Goreng", 2, websocket, chef, order_id, 4, total_steps, color)
-    await chef_step("serving Mee Goreng", 1, websocket, chef, order_id, 5, total_steps, color)
+    async def cook_mee_goreng(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "orange"
+        await self.chef_step("cutting vegetables for Mee Goreng", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("boiling noodles for Mee Goreng", 4, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("frying noodles for Mee Goreng", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("adding sauce for Mee Goreng", 2, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("serving Mee Goreng", 1, websocket, chef, order_id, 5, total_steps, color)
 
-async def cook_butter_chicken(websocket: WebSocket, order_id: str, chef: str):
-    total_steps = 5
-    color = "green"
-    await chef_step("marinating chicken for Butter Chicken", 3, websocket, chef, order_id, 1, total_steps, color)
-    await chef_step("cooking chicken for Butter Chicken", 4, websocket, chef, order_id, 2, total_steps, color)
-    await chef_step("preparing sauce for Butter Chicken", 5, websocket, chef, order_id, 3, total_steps, color)
-    await chef_step("mixing chicken and sauce for Butter Chicken", 2, websocket, chef, order_id, 4, total_steps, color)
-    await chef_step("serving Butter Chicken", 1, websocket, chef, order_id, 5, total_steps, color)
+    async def cook_butter_chicken(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "green"
+        await self.chef_step("marinating chicken for Butter Chicken", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("cooking chicken for Butter Chicken", 4, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("preparing sauce for Butter Chicken", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("mixing chicken and sauce for Butter Chicken", 2, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("serving Butter Chicken", 1, websocket, chef, order_id, 5, total_steps, color)
 
-async def cook_dosa(websocket: WebSocket, order_id: str, chef: str):
-    total_steps = 5
-    color = "blue"
-    await chef_step("soaking rice and lentils for Dosa", 3, websocket, chef, order_id, 1, total_steps, color)
-    await chef_step("grinding batter for Dosa", 2, websocket, chef, order_id, 2, total_steps, color)
-    await chef_step("fermenting batter for Dosa", 5, websocket, chef, order_id, 3, total_steps, color)
-    await chef_step("making dosa on pan", 3, websocket, chef, order_id, 4, total_steps, color)
-    await chef_step("adding fillings to Dosa", 2, websocket, chef, order_id, 5, total_steps, color)
+    async def cook_dosa(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "blue"
+        await self.chef_step("soaking rice and lentils for Dosa", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("grinding batter for Dosa", 2, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("fermenting batter for Dosa", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("making dosa on pan", 3, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("adding fillings to Dosa", 2, websocket, chef, order_id, 5, total_steps, color)
+
+kitchens = {}
 
 @app.get("/")
 async def get():
@@ -224,13 +230,21 @@ async def get():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        data = await websocket.receive_json()
-        dish = data['dish']
-        order_id = data['orderId']
-        client_id = data['clientId']
-        await order_queue.put({"dish": dish, "order_id": order_id, "client_id": client_id})
-        asyncio.create_task(assign_order_to_chef(websocket, client_id))
+    client_id = None
+    try:
+        while True:
+            data = await websocket.receive_json()
+            dish = data['dish']
+            order_id = data['orderId']
+            client_id = data['clientId']
+            if client_id not in kitchens:
+                kitchens[client_id] = Kitchen()
+            kitchen = kitchens[client_id]
+            await kitchen.order_queue.put({"dish": dish, "order_id": order_id})
+            asyncio.create_task(kitchen.assign_order_to_chef(websocket))
+    except WebSocketDisconnect:
+        print(f"Client {client_id} disconnected")
+        del kitchens[client_id]
 
 # if __name__ == '__main__':
 #     import uvicorn
