@@ -150,14 +150,14 @@ async def get():
                 <ul id="completed-orders"></ul>
             </div>
             <script>
-                let clientId = localStorage.getItem('clientId');
+                let clientId = sessionStorage.getItem('clientId');
                 if (!clientId) {
                     clientId = Math.random().toString(36).substr(2, 9);
-                    localStorage.setItem('clientId', clientId);
+                    sessionStorage.setItem('clientId', clientId);
                 }
                 document.getElementById('client-id').textContent = 'Client ID: ' + clientId;
 
-                let orderCounters = JSON.parse(localStorage.getItem('orderCounters')) || {
+                let orderCounters = JSON.parse(sessionStorage.getItem('orderCounters')) || {
                     mee_goreng: 0,
                     butter_chicken: 0,
                     dosa: 0
@@ -167,7 +167,7 @@ async def get():
 
                 function startCooking(dish) {
                     orderCounters[dish] += 1;
-                    localStorage.setItem('orderCounters', JSON.stringify(orderCounters));
+                    sessionStorage.setItem('orderCounters', JSON.stringify(orderCounters));
                     const orderId = `${dish.toUpperCase()}-${String(orderCounters[dish]).padStart(3, '0')}`;
                     document.getElementById('order-queue').innerHTML += `<li id="${orderId}">${orderId}</li>`;
                     ws.send(JSON.stringify({ dish, orderId, clientId }));
@@ -186,9 +186,9 @@ async def get():
                         const orderElem = document.getElementById(orderId);
                         if (orderElem) {
                             orderElem.parentNode.removeChild(orderElem);
-                            let completedOrders = JSON.parse(localStorage.getItem('completedOrders')) || [];
+                            let completedOrders = JSON.parse(sessionStorage.getItem('completedOrders')) || [];
                             completedOrders.push(orderId);
-                            localStorage.setItem('completedOrders', JSON.stringify(completedOrders));
+                            sessionStorage.setItem('completedOrders', JSON.stringify(completedOrders));
                             document.getElementById('completed-orders').innerHTML = completedOrders.map(id => `<li>${id}</li>`).join('');
                         }
                     }
