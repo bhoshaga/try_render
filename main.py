@@ -1,413 +1,252 @@
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+import asyncio
+from datetime import datetime
 
 app = FastAPI()
 
-# Flight path dictionaries
-flight_paths = {
-    "flight_1": {
-        "origin": "San Francisco (SFO)",
-        "destination": "Toronto (YYZ)",
-        "flight_time": "4 hours 30 minutes",
-        "img_flight_time": "2 hours 15 minutes",
-        "img_url": "https://i.pinimg.com/1200x/40/bb/a9/40bba9c6235d52f02f61e4a8ac9d59bb.jpg",
-        "progress_bar_completion": "50%",
-        "correct_answer": "lakegeneva"
-    },
-    "flight_2": {
-        "origin": "New York (JFK)",
-        "destination": "London (LHR)",
-        "flight_time": "7 hours",
-        "img_flight_time": "4 hours",
-        "img_url": "https://i.pinimg.com/originals/bb/18/0d/bb180ddf9e0d9e69f8700c5f7df86dd0.jpg",
-        "progress_bar_completion": "57%",
-        "correct_answer": "towerbridge"
-    },
-    "flight_3": {
-        "origin": "Los Angeles (LAX)",
-        "destination": "Tokyo (NRT)",
-        "flight_time": "11 hours 30 minutes",
-        "img_flight_time": "6 hours",
-        "img_url": "https://i.pinimg.com/originals/13/ca/5c/13ca5cc6ff5ee5537ff5b8bbdb11e1f1.jpg",
-        "progress_bar_completion": "52%",
-        "correct_answer": "mountfuji"
-    },
-    "flight_4": {
-        "origin": "Sydney (SYD)",
-        "destination": "Dubai (DXB)",
-        "flight_time": "14 hours",
-        "img_flight_time": "7 hours",
-        "img_url": "https://i.pinimg.com/originals/23/bb/76/23bb76431ac89d53279d1db8821a71cf.jpg",
-        "progress_bar_completion": "50%",
-        "correct_answer": "dubai"
-    },
-    "flight_5": {
-        "origin": "Singapore (SIN)",
-        "destination": "San Francisco (SFO)",
-        "flight_time": "16 hours 30 minutes",
-        "img_flight_time": "15 hours 30 minutes",
-        "img_url": "https://i.pinimg.com/736x/33/94/25/3394253154be33fabc240f72fcc989a5.jpg",
-        "progress_bar_completion": "95%",
-        "correct_answer": "sanfrancisco"
-    }
-}
+class Kitchen:
+    def __init__(self):
+        self.chefs = ["Chef Gordon", "Chef Jamie", "Chef Nigella"]
+        self.stoves = [{"dish": None, "order_id": None} for _ in range(4)]
+        self.chef_status = {chef: "idle" for chef in self.chefs}
+        self.order_queue = asyncio.Queue()
 
-@app.get("/", response_class=HTMLResponse)
-async def get_home():
+    async def assign_order_to_chef(self, websocket):
+        while True:
+            order = await self.order_queue.get()
+            for i, chef in enumerate(self.chefs):
+                if self.chef_status[chef] == "idle":
+                    for j, stove in enumerate(self.stoves):
+                        if not stove["dish"]:
+                            self.chef_status[chef] = "cooking"
+                            self.stoves[j]["dish"] = order["dish"]
+                            self.stoves[j]["order_id"] = order["order_id"]
+                            asyncio.create_task(self.cook_dish(websocket, order["dish"], order["order_id"], chef, j))
+                            break
+                    else:
+                        continue
+                    break
+            else:
+                self.order_queue.put_nowait(order)
+            await asyncio.sleep(1)
+
+    async def cook_dish(self, websocket, dish, order_id, chef, stove_num):
+        try:
+            await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Assigned to {chef} on Stove {stove_num + 1}</div>")
+            if dish == 'mee_goreng':
+                await self.cook_mee_goreng(websocket, order_id, chef)
+            elif dish == 'butter_chicken':
+                await self.cook_butter_chicken(websocket, order_id, chef)
+            elif dish == 'dosa':
+                await self.cook_dosa(websocket, order_id, chef)
+            await websocket.send_text(f"<div><strong>Order {order_id}:</strong> Completed by {chef}</div>")
+        except WebSocketDisconnect:
+            print(f"WebSocket disconnected while cooking {order_id}")
+        finally:
+            self.stoves[stove_num]["dish"] = None
+            self.stoves[stove_num]["order_id"] = None
+            self.chef_status[chef] = "idle"
+
+    async def chef_step(self, step_name: str, duration: int, websocket: WebSocket, chef: str, order_id: str, step_num: int, total_steps: int, color: str):
+        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Started {step_name} at {start_time}.</div>")
+        await asyncio.sleep(duration)
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await websocket.send_text(f"<div style='color: {color};'><strong>Order {order_id} - {chef}:</strong> Step {step_num}/{total_steps} - Completed {step_name} at {end_time}.</div>")
+        await asyncio.sleep(0.5)  # Half-second delay between steps
+
+    async def cook_mee_goreng(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "orange"
+        await self.chef_step("cutting vegetables for Mee Goreng", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("boiling noodles for Mee Goreng", 4, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("frying noodles for Mee Goreng", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("adding sauce for Mee Goreng", 2, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("serving Mee Goreng", 1, websocket, chef, order_id, 5, total_steps, color)
+
+    async def cook_butter_chicken(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "green"
+        await self.chef_step("marinating chicken for Butter Chicken", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("cooking chicken for Butter Chicken", 4, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("preparing sauce for Butter Chicken", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("mixing chicken and sauce for Butter Chicken", 2, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("serving Butter Chicken", 1, websocket, chef, order_id, 5, total_steps, color)
+
+    async def cook_dosa(self, websocket: WebSocket, order_id: str, chef: str):
+        total_steps = 5
+        color = "blue"
+        await self.chef_step("soaking rice and lentils for Dosa", 3, websocket, chef, order_id, 1, total_steps, color)
+        await self.chef_step("grinding batter for Dosa", 2, websocket, chef, order_id, 2, total_steps, color)
+        await self.chef_step("fermenting batter for Dosa", 5, websocket, chef, order_id, 3, total_steps, color)
+        await self.chef_step("making dosa on pan", 3, websocket, chef, order_id, 4, total_steps, color)
+        await self.chef_step("adding fillings to Dosa", 2, websocket, chef, order_id, 5, total_steps, color)
+
+kitchens = {}
+
+@app.get("/")
+async def get():
     html_content = """
     <!DOCTYPE html>
     <html>
-    <head>
-        <title>Window Seat Game</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
-        <style>
-            body { font-family: Arial, sans-serif; text-align: center; }
-            h1 { margin-bottom: 0; }
-            h2 { margin-top: 5px; }
-            .flight-button { margin: 10px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
-            .image { max-width: 300px; height: 350px; object-fit: cover; border-radius: 20px; display: none; margin: 0 auto; }
-            .guess-box { margin-top: 20px; }
-            .wordle-box { display: flex; justify-content: center; margin-top: 20px; }
-            .wordle-box input { width: 40px; height: 40px; font-size: 24px; text-align: center; margin: 2px; text-transform: uppercase; }
-            .timer { font-size: 24px; margin-top: 20px; display: none; }
-            .animate__animated { animation-duration: 1s; }
-            .correct { color: green; font-size: 32px; }
-            .incorrect { color: #FF5A5F; font-size: 24px; }
-            .flight-path { font-size: 18px; margin-bottom: 20px; display: none; }
-            .progress-bar { width: 40%; height: 2px; background-color: #f3f3f3; border-radius: 13px; overflow: hidden; margin: 20px auto; display: none; }
-            .progress-bar-fill { height: 100%; background-color: #4caf50; }
-            .restart-btn { display: none; margin-top: 20px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
-        </style>
-    </head>
-    <body>
-        <h1>Window Seat</h1>
-        <h2>Guess the Location</h2>
-        <p>Select a flight path and guess the location or structure visible from the window seat.</p>
-        <button class="flight-button" onclick="startFlight('flight_1')">Flight 1</button>
-        <button class="flight-button" onclick="startFlight('flight_2')">Flight 2</button>
-        <button class="flight-button" onclick="startFlight('flight_3')">Flight 3</button>
-        <button class="flight-button" onclick="startFlight('flight_4')">Flight 4</button>
-        <button class="flight-button" onclick="startFlight('flight_5')">Flight 5</button>
-        <div id="flight-details"></div>
-        <form class="guess-box" method="post" action="/guess" id="guess-form" style="display: none;">
-            <div class="wordle-box" id="wordle-box">
-                <!-- Input fields will be inserted here dynamically -->
+        <head>
+            <title>Cooking Progress</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; display: flex; }
+                h1, h2 { color: #333; }
+                button { margin: 5px; padding: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+                #progress, .orders { padding: 20px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9; }
+                #progress { flex: 1; margin-right: 20px; overflow-y: auto; max-height: 400px; }
+                .step { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #fff; }
+                .orders { width: 30%; }
+                .orders ul { list-style-type: none; padding: 0; }
+                .orders li { margin: 5px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background: #fff; }
+                .stoves { display: flex; justify-content: space-around; margin-top: 20px; }
+                .stove { width: 150px; height: 150px; border: 2px solid #333; border-radius: 5px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; }
+                .stove .dish { font-size: 14px; margin-top: 5px; }
+                .chef-status { margin-top: 20px; }
+                .chef-status p { margin: 5px 0; }
+                #client-id { position: absolute; top: 10px; right: 10px; font-size: 14px; color: #888; }
+            </style>
+        </head>
+        <body>
+            <div>
+                <h1>Cooking Progress</h1>
+                <div id="client-id"></div>
+                <button onclick="startCooking('mee_goreng')">Start Mee Goreng</button>
+                <button onclick="startCooking('butter_chicken')">Start Butter Chicken</button>
+                <button onclick="startCooking('dosa')">Start Dosa</button>
+                <div id="progress"></div>
+                <div class="stoves">
+                    <div class="stove" id="stove1">
+                        <div>Stove 1</div>
+                        <div class="dish" id="stove1-dish"></div>
+                    </div>
+                    <div class="stove" id="stove2">
+                        <div>Stove 2</div>
+                        <div class="dish" id="stove2-dish"></div>
+                    </div>
+                    <div class="stove" id="stove3">
+                        <div>Stove 3</div>
+                        <div class="dish" id="stove3-dish"></div>
+                    </div>
+                    <div class="stove" id="stove4">
+                        <div>Stove 4</div>
+                        <div class="dish" id="stove4-dish"></div>
+                    </div>
+                </div>
+                <div class="chef-status">
+                    <h2>Chef Status</h2>
+                    <p><strong>Chef Gordon:</strong> <span id="chef-gordon-status">idle</span></p>
+                    <p><strong>Chef Jamie:</strong> <span id="chef-jamie-status">idle</span></p>
+                    <p><strong>Chef Nigella:</strong> <span id="chef-nigella-status">idle</span></p>
+                </div>
             </div>
-            <input type="hidden" name="guess_count" id="guess_count" value="5">
-            <input type="hidden" name="flight_key" id="flight_key" value="">
-            <button type="submit">Submit</button>
-        </form>
-        <div class="result" id="result"></div>
-        <div class="timer" id="timer"></div>
-        <div class="guess-counter">Guesses remaining: <span id="guessCount">5</span></div>
-        <button class="restart-btn" onclick="restartGame()" id="restart-btn">Restart</button>
-        <script>
-            let flightData = {};
-            let timerInterval;
-            let remainingTime = 300; // 5 minutes in seconds
-
-            function startFlight(flightKey) {
-                flightData = { ...flightPaths[flightKey] };
-                document.getElementById("flight-details").innerHTML = `
-                    <div class="flight-path">
-                        ${flightData.origin} --------- ✈ --------- ${flightData.destination} <br>
-                        Flight time: ${flightData.flight_time} <br>
-                        Image taken at ${flightData.img_flight_time} into the flight
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-bar-fill" style="width: ${flightData.progress_bar_completion};"></div>
-                    </div>
-                    <img src="${flightData.img_url}" class="image" alt="Window Seat View">
-                `;
-                document.querySelector('.flight-path').style.display = 'block';
-                document.querySelector('.progress-bar').style.display = 'block';
-                document.querySelector('.image').style.display = 'block';
-                document.getElementById('guess-form').style.display = 'block';
-                document.getElementById('flight_key').value = flightKey;
-                generateWordleBox(flightData.correct_answer.length);
-                startTimer();
-            }
-
-            function generateWordleBox(length) {
-                const wordleBox = document.getElementById('wordle-box');
-                wordleBox.innerHTML = '';
-                for (let i = 0; i < length; i++) {
-                    wordleBox.innerHTML += `<input type="text" name="letter${i}" maxlength="1" oninput="moveFocus(this, ${i})" onkeydown="handleKeyDown(event, ${i})">`;
+            <div class="orders">
+                <h2>Order Queue</h2>
+                <ul id="order-queue"></ul>
+                <h2>Completed Orders</h2>
+                <ul id="completed-orders"></ul>
+            </div>
+            <script>
+                let clientId = sessionStorage.getItem('clientId');
+                if (!clientId) {
+                    clientId = Math.random().toString(36).substr(2, 9);
+                    sessionStorage.setItem('clientId', clientId);
                 }
-            }
+                document.getElementById('client-id').textContent = 'Client ID: ' + clientId;
 
-            function moveFocus(currentInput, index) {
-                if (currentInput.value.length >= 1) {
-                    const nextInput = document.querySelector(`input[name='letter${index + 1}']`);
-                    if (nextInput) {
-                        nextInput.focus();
+                let orderCounters = JSON.parse(sessionStorage.getItem('orderCounters')) || {
+                    mee_goreng: 0,
+                    butter_chicken: 0,
+                    dosa: 0
+                };
+
+                let ws = new WebSocket("wss://try-render-bzt9.onrender.com/ws");
+
+                function startCooking(dish) {
+                    orderCounters[dish] += 1;
+                    sessionStorage.setItem('orderCounters', JSON.stringify(orderCounters));
+                    const orderId = `${dish.toUpperCase()}-${String(orderCounters[dish]).padStart(3, '0')}`;
+                    document.getElementById('order-queue').innerHTML += `<li id="${orderId}">${orderId}</li>`;
+                    ws.send(JSON.stringify({ dish, orderId, clientId }));
+                }
+
+                ws.onmessage = function(event) {
+                    const progressDiv = document.getElementById('progress');
+                    const stepDiv = document.createElement('div');
+                    stepDiv.className = 'step';
+                    stepDiv.innerHTML = event.data;
+                    progressDiv.insertBefore(stepDiv, progressDiv.firstChild);
+
+                    // Move to completed orders if final step
+                    if (event.data.includes("Completed by")) {
+                        const orderId = event.data.match(/Order (.+?):/)[1];
+                        const orderElem = document.getElementById(orderId);
+                        if (orderElem) {
+                            orderElem.parentNode.removeChild(orderElem);
+                            let completedOrders = JSON.parse(sessionStorage.getItem('completedOrders')) || [];
+                            completedOrders.push(orderId);
+                            sessionStorage.setItem('completedOrders', JSON.stringify(completedOrders));
+                            document.getElementById('completed-orders').innerHTML = completedOrders.map(id => `<li>${id}</li>`).join('');
+                        }
                     }
-                }
-            }
 
-            function handleKeyDown(event, index) {
-                const prevInput = document.querySelector(`input[name='letter${index - 1}']`);
-                const nextInput = document.querySelector(`input[name='letter${index + 1}']`);
+                    // Update stove status
+                    if (event.data.includes("Assigned to")) {
+                        const stoveNum = event.data.match(/Stove (\d+)/)[1];
+                        const orderId = event.data.match(/Order (.+?):/)[1];
+                        document.getElementById(`stove${stoveNum}-dish`).textContent = orderId;
+                    }
 
-                if (event.key === "ArrowLeft" && prevInput) {
-                    prevInput.focus();
-                } else if (event.key === "ArrowRight" && nextInput) {
-                    nextInput.focus();
-                } else if (event.key === "Backspace" && event.target.value === "" && prevInput) {
-                    prevInput.focus();
-                }
-            }
+                    // Clear stove status when completed
+                    if (event.data.includes("Completed by")) {
+                        const orderId = event.data.match(/Order (.+?):/)[1];
+                        for (let i = 1; i <= 4; i++) {
+                            const stoveDish = document.getElementById(`stove${i}-dish`);
+                            if (stoveDish.textContent === orderId) {
+                                stoveDish.textContent = "";
+                                break;
+                            }
+                        }
+                    }
 
-            let guessCount = 5;
-
-            function decrementGuessCount() {
-                guessCount--;
-                document.getElementById('guessCount').textContent = guessCount;
-                if (guessCount <= 0) {
-                    document.querySelector('form').style.display = 'none';
-                    document.getElementById('restart-btn').style.display = 'inline-block';
-                }
-            }
-
-            function restartGame() {
-                window.location.href = "/";
-            }
-
-            function startTimer() {
-                remainingTime = 300;
-                document.getElementById('timer').style.display = 'block';
-                clearInterval(timerInterval);
-                timerInterval = setInterval(updateTimer, 1000);
-            }
-
-            function updateTimer() {
-                const minutes = Math.floor(remainingTime / 60);
-                const seconds = remainingTime % 60;
-                document.getElementById('timer').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                remainingTime--;
-
-                if (remainingTime < 0) {
-                    clearInterval(timerInterval);
-                    document.getElementById('timer').textContent = "Time's up!";
-                    document.querySelector('form').style.display = 'none';
-                    document.getElementById('restart-btn').style.display = 'inline-block';
-                }
-            }
-
-            const flightPaths = {
-                "flight_1": {
-                    "origin": "San Francisco (SFO)",
-                    "destination": "Toronto (YYZ)",
-                    "flight_time": "4 hours 30 minutes",
-                    "img_flight_time": "2 hours 15 minutes",
-                    "img_url": "https://i.pinimg.com/1200x/40/bb/a9/40bba9c6235d52f02f61e4a8ac9d59bb.jpg",
-                    "progress_bar_completion": "50%",
-                    "correct_answer": "lakegeneva"
-                },
-                "flight_2": {
-                    "origin": "New York (JFK)",
-                    "destination": "London (LHR)",
-                    "flight_time": "7 hours",
-                    "img_flight_time": "4 hours",
-                    "img_url": "https://i.pinimg.com/originals/bb/18/0d/bb180ddf9e0d9e69f8700c5f7df86dd0.jpg",
-                    "progress_bar_completion": "57%",
-                    "correct_answer": "towerbridge"
-                },
-                "flight_3": {
-                    "origin": "Los Angeles (LAX)",
-                    "destination": "Tokyo (NRT)",
-                    "flight_time": "11 hours 30 minutes",
-                    "img_flight_time": "6 hours",
-                    "img_url": "https://i.pinimg.com/originals/13/ca/5c/13ca5cc6ff5ee5537ff5b8bbdb11e1f1.jpg",
-                    "progress_bar_completion": "52%",
-                    "correct_answer": "mountfuji"
-                },
-                "flight_4": {
-                    "origin": "Sydney (SYD)",
-                    "destination": "Dubai (DXB)",
-                    "flight_time": "14 hours",
-                    "img_flight_time": "7 hours",
-                    "img_url": "https://i.pinimg.com/originals/23/bb/76/23bb76431ac89d53279d1db8821a71cf.jpg",
-                    "progress_bar_completion": "50%",
-                    "correct_answer": "dubai"
-                },
-                "flight_5": {
-                    "origin": "Singapore (SIN)",
-                    "destination": "San Francisco (SFO)",
-                    "flight_time": "16 hours 30 minutes",
-                    "img_flight_time": "15 hours 30 minutes",
-                    "img_url": "https://i.pinimg.com/736x/33/94/25/3394253154be33fabc240f72fcc989a5.jpg",
-                    "progress_bar_completion": "95%",
-                    "correct_answer": "sanfrancisco"
-                }
-            };
-        </script>
-    </body>
+                    // Update chef status
+                    if (event.data.includes("Chef Gordon")) {
+                        document.getElementById('chef-gordon-status').textContent = event.data.includes("Started") ? "cooking" : "idle";
+                    } else if (event.data.includes("Chef Jamie")) {
+                        document.getElementById('chef-jamie-status').textContent = event.data.includes("Started") ? "cooking" : "idle";
+                    } else if (event.data.includes("Chef Nigella")) {
+                        document.getElementById('chef-nigella-status').textContent = event.data.includes("Started") ? "cooking" : "idle";
+                    }
+                };
+            </script>
+        </body>
     </html>
     """
-    return html_content
+    return HTMLResponse(html_content)
 
-@app.post("/guess", response_class=HTMLResponse)
-async def make_guess(
-    request: Request,
-    letter0: str = Form(""),
-    letter1: str = Form(""),
-    letter2: str = Form(""),
-    letter3: str = Form(""),
-    letter4: str = Form(""),
-    letter5: str = Form(""),
-    letter6: str = Form(""),
-    letter7: str = Form(""),
-    letter8: str = Form(""),
-    letter9: str = Form(""),
-    guess_count: int = Form(...),
-    flight_key: str = Form("")
-):
-    correct_answer = flight_paths[flight_key]["correct_answer"]
-    guess = f"{letter0}{letter1}{letter2}{letter3}{letter4}{letter5}{letter6}{letter7}{letter8}{letter9}".lower()
-    guess = guess[:len(correct_answer)]  # Truncate guess to the correct length
-    if guess == correct_answer:
-        result = "Correct! Congratulations!"
-        result_class = "correct animate__animated animate__bounceIn"
-        guess_count_message = ""
-        timer_interval_clear = "clearInterval(timerInterval);"
-        form_display = "none"
-        restart_button_display = "inline-block"
-    else:
-        result = "Incorrect. Try again!"
-        result_class = "incorrect animate__animated animate__shakeX"
-        guess_count -= 1
-        guess_count_message = f"Guesses remaining: <span id='guessCount'>{guess_count}</span>"
-        timer_interval_clear = ""
-        form_display = "block"
-        restart_button_display = "none"
-        if guess_count <= 0:
-            form_display = "none"
-            restart_button_display = "inline-block"
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    client_id = None
+    try:
+        while True:
+            data = await websocket.receive_json()
+            dish = data['dish']
+            order_id = data['orderId']
+            client_id = data['clientId']
+            if client_id not in kitchens:
+                kitchens[client_id] = Kitchen()
+            kitchen = kitchens[client_id]
+            await kitchen.order_queue.put({"dish": dish, "order_id": order_id})
+            asyncio.create_task(kitchen.assign_order_to_chef(websocket))
+    except WebSocketDisconnect:
+        print(f"Client {client_id} disconnected")
+        if client_id in kitchens:
+            del kitchens[client_id]
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Window Seat Game</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
-        <style>
-            body {{ font-family: Arial, sans-serif; text-align: center; }}
-            h1 {{ margin-bottom: 0; }}
-            h2 {{ margin-top: 5px; }}
-            .image {{ max-width: 300px; height: 350px; object-fit: cover; border-radius: 20px; margin: 0 auto; }}
-            .guess-box {{ margin-top: 20px; }}
-            .wordle-box {{ display: flex; justify-content: center; margin-top: 20px; }}
-            .wordle-box input {{ width: 40px; height: 40px; font-size: 24px; text-align: center; margin: 2px; text-transform: uppercase; }}
-            .timer {{ font-size: 24px; margin-top: 20px; }}
-            .animate__animated {{ animation-duration: 1s; }}
-            .correct {{ color: green; font-size: 32px; }}
-            .incorrect {{ color: #FF5A5F; font-size: 24px; }}
-            .flight-path {{ font-size: 18px; margin-bottom: 20px; }}
-            .progress-bar {{ width: 40%; height: 2px; background-color: #f3f3f3; border-radius: 13px; overflow: hidden; margin: 20px auto; }}
-            .progress-bar-fill {{ height: 100%; background-color: #4caf50; width: {flight_paths[flight_key]['progress_bar_completion']}; }} /* Adjust width as needed */
-            .restart-btn {{ display: {restart_button_display}; margin-top: 20px; padding: 10px 20px; font-size: 16px; cursor: pointer; }}
-        </style>
-    </head>
-    <body>
-        <h1>Window Seat</h1>
-        <h2>Guess the Location</h2>
-        <div class="flight-path">
-            {flight_paths[flight_key]["origin"]} --------- ✈ --------- {flight_paths[flight_key]["destination"]} <br>
-            Flight time: {flight_paths[flight_key]["flight_time"]} <br>
-            Image taken at {flight_paths[flight_key]["img_flight_time"]} into the flight
-        </div>
-        <div class="progress-bar">
-            <div class="progress-bar-fill"></div>
-        </div>
-        <img src="{flight_paths[flight_key]['img_url']}" class="image" alt="Window Seat View">
-        <form class="guess-box" method="post" action="/guess" style="display: {form_display}">
-            <div class="wordle-box">
-                {''.join([f'<input type="text" name="letter{i}" maxlength="1" oninput="moveFocus(this, {i})" onkeydown="handleKeyDown(event, {i})">' for i in range(len(flight_paths[flight_key]["correct_answer"]))])}
-            </div>
-            <input type="hidden" name="guess_count" value="{guess_count}">
-            <input type="hidden" name="flight_key" value="{flight_key}">
-            <button type="submit">Submit</button>
-        </form>
-        <div class="result {result_class}">{result}</div>
-        <div class="timer" id="timer"></div>
-        <div class="guess-counter">{guess_count_message}</div>
-        <button class="restart-btn" onclick="restartGame()" id="restart-btn">Restart</button>
-        <script>
-            function moveFocus(currentInput, index) {{
-                if (currentInput.value.length >= 1) {{
-                    const nextInput = document.querySelector(`input[name='letter${{index + 1}}']`);
-                    if (nextInput) {{
-                        nextInput.focus();
-                    }}
-                }}
-            }}
-
-            function handleKeyDown(event, index) {{
-                const prevInput = document.querySelector(`input[name='letter${{index - 1}}']`);
-                const nextInput = document.querySelector(`input[name='letter${{index + 1}}']`);
-
-                if (event.key === "ArrowLeft" && prevInput) {{
-                    prevInput.focus();
-                }} else if (event.key === "ArrowRight" && nextInput) {{
-                    nextInput.focus();
-                }} else if (event.key === "Backspace" && event.target.value === "" && prevInput) {{
-                    prevInput.focus();
-                }}
-            }}
-
-            let guessCount = {guess_count};
-
-            function decrementGuessCount() {{
-                guessCount--;
-                document.getElementById('guessCount').textContent = guessCount;
-                if (guessCount <= 0) {{
-                    document.querySelector('form').style.display = 'none';
-                    document.getElementById('restart-btn').style.display = 'inline-block';
-                }}
-            }}
-
-            function restartGame() {{
-                window.location.href = "/";
-            }}
-
-            const timer = document.getElementById('timer');
-            let remainingTime = 300; // 5 minutes in seconds
-
-            function startTimer() {{
-                remainingTime = 300;
-                document.getElementById('timer').style.display = 'block';
-                clearInterval(timerInterval);
-                timerInterval = setInterval(updateTimer, 1000);
-            }}
-
-            function updateTimer() {{
-                const minutes = Math.floor(remainingTime / 60);
-                const seconds = remainingTime % 60;
-                timer.textContent = `${{minutes}}:${{seconds.toString().padStart(2, '0')}}`;
-                remainingTime--;
-
-                if (remainingTime < 0) {{
-                    clearInterval(timerInterval);
-                    timer.textContent = "Time's up!";
-                    document.querySelector('form').style.display = 'none';
-                    document.getElementById('restart-btn').style.display = 'inline-block';
-                }}
-            }}
-
-            const timerInterval = setInterval(updateTimer, 1000);
-
-            if ("{guess}" !== "{correct_answer}") {{
-                decrementGuessCount();
-            }} else {{
-                {timer_interval_clear}
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    return html_content
-
-# if __name__ == "__main__":
+# if __name__ == '__main__':
 #     import uvicorn
-#     uvicorn.run(app, host="0.0.0.0", port=8000)
+#     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
