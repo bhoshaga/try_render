@@ -251,11 +251,20 @@ async def get_home():
 async def make_guess(
     request: Request,
     guess_count: int = Form(...),
-    flight_key: str = Form(""),
-    **letters
+    flight_key: str = Form(...),
+    letter0: str = Form(""),
+    letter1: str = Form(""),
+    letter2: str = Form(""),
+    letter3: str = Form(""),
+    letter4: str = Form(""),
+    letter5: str = Form(""),
+    letter6: str = Form(""),
+    letter7: str = Form(""),
+    letter8: str = Form(""),
+    letter9: str = Form("")
 ):
     correct_answer = flight_paths[flight_key]["correct_answer"]
-    guess = ''.join(letters[f'letter{i}'] for i in range(len(correct_answer))).lower()
+    guess = (letter0 + letter1 + letter2 + letter3 + letter4 + letter5 + letter6 + letter7 + letter8 + letter9).lower()
     guess = guess[:len(correct_answer)]  # Truncate guess to the correct length
     if guess == correct_answer:
         result = "Correct! Congratulations!"
